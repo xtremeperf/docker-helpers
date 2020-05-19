@@ -1,0 +1,121 @@
+#!/bin/bash
+
+[[ ${DEBUG} ]] && set -x
+
+
+usage()
+{
+	cat <<-EOF
+	Usage: ${0##*/} [OPTIONS] NAME
+
+	List available tags for an image
+
+	Options:
+	  -C, --color    colorize the output; force if stdout is not a tty
+	  -j, --json     format output as JSON
+	  -l, --long     format output as a long listing
+	  -M, --mono     monochrome output; force if stdout is a tty
+	  -Q, --quote    enclose tag names in double quotes
+	  -R, --raw      output raw data from Docker Hub
+
+	  -v, --verbose  print the command string used to generate results on stderr
+	  -h, --help     display this help and exit
+
+	EOF
+	cat <<<"Data source: 'https://registry.hub.docker.com/v1/repositories/[NAME]/tags'"
+	#
+	# TODO: Add option for --format=<json|raw|tabular>
+	#
+}
+
+
+_main()
+{
+	# default options
+	local COLOR JSON=0 LONG=0 QUOTE=0 RAW=0 HELP=0 VERBOSE=0
+
+	# first parameter is an option argument
+	while [[ ${1:0:1} == '-' ]]; do
+		case $1 in
+			-C | --color)    COLOR=1    ;;
+			-j | --json)     JSON=1     ;;
+			-l | --long)     LONG=1     ;;
+			-M | --mono)     COLOR=0    ;;
+			-Q | --quote)    QUOTE=1    ;;
+			-R | --raw)      RAW=1      ;;
+			-v | --verbose)  VERBOSE=1  ;;
+			-h | --help)     HELP=1     ;;
+			*)
+				printf "%s: '%s'\n\n" "[ERROR] Invalid option" "$1" >/dev/stderr
+				return 22
+				;;
+		esac
+		shift
+	done
+	# Print usage help
+	if [[ ${HELP} == 1 ]]; then
+		usage
+		return
+	fi
+	# Error-check remaining args
+	if [[ $# -gt 1 ]]; then
+		printf '%s\n\n' "[ERROR] Too many arguments (max allowed = 1)" >/dev/stderr
+		printf '%s\n' "Use --help for more info." >/dev/stderr
+		return 7
+	elif [[ $# -eq 0 ]]; then
+		printf '%s\n\n' "[ERROR] Missing arguments (required = 1)" >/dev/stderr
+		printf '%s\n' "Use --help for more info." >/dev/stderr
+		return 7
+	fi
+
+	# Parse program options into a command line with corresponding arguments
+	local name=$1
+	local repo_URL="https://registry.hub.docker.com/v1/repositories/${name}/tags"
+	local jq_Opts
+
+	# stdout is a pipe (not now, when running `jq`)
+	if [[ ! -t 1 ]]; then
+		if [[ ${COLOR} == 1 ]]; then
+			# force color thru pipe if invoked with --color
+			jq_Opts+=' -C'
+		fi
+	# stdout is a terminal
+	else
+		if [[ ${COLOR} == 0 ]]; then
+			jq_Opts+=' -M'
+		else
+			jq_Opts+=' -C'
+		fi
+	fi
+
+	if [[ ${RAW} == 1 ]]; then
+		jq_Opts+=' -R'
+	fi
+
+	local cmd
+	cmd="curl -Ss ${repo_URL} | jq ${jq_Opts}"
+
+	# Format tag data using JSON processor `jq`
+	if [[ ${JSON} == 0 && ${RAW} == 0 ]]; then
+		# Take an array of JSON objects as input and filter by 'name' field
+		cmd+=" '.[].name'"
+		# Data arrives with tag names double-quoted; Remove them unless -Q specified
+		if [[ ${QUOTE} == 0 ]]; then
+			cmd+=" | tr -d '\"'"
+		fi
+		# Long listing format needs nothing here; Column format needs pipe to column
+		if [[ ${LONG} == 0 ]]; then
+			cmd+=" | column -c $(tput cols)"
+		fi
+	fi
+
+	# Output the run command on stderr (still possible to pipe from stdout)
+	if [[ ${VERBOSE} == 1 ]]; then
+		printf '%b%s%b\n\n' $(tput setaf 8) "${cmd}" $(tput sgr0) >/dev/stderr
+	fi
+
+	# Execute the command after concatenation
+	eval ${cmd}
+}
+
+_main "$@"
