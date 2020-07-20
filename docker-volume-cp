@@ -1,0 +1,43 @@
+#!/bin/bash
+#===============================================================================
+# docker-helpers/docker-volume-cp
+#
+# Docker convenience script to assist in making a copy (clone) of a named volume
+#
+# Author(s): Douglas W. Lincicome <doug@xtremefabrications.com>
+#
+#===============================================================================
+
+if [[ $# -lt 2 ]]; then
+	echo "Error: missing parameters - expected 2 arguments"
+	exit
+elif [[ $# -gt 2 ]]; then
+	echo "Error: too many parameters - expected 2 arguments"
+	exit
+fi
+if [[ -z $1 ]]; then
+	echo "Error: missing parameter - source volume name"
+	exit
+fi
+if [[ -z $2 ]]; then
+	echo "Error: missing parameter - destination volume name"
+	exit
+fi
+
+# Check that source volume exists
+docker volume inspect $1 >/dev/null 2>&1 \
+	|| { echo "Error: source volume \"$1\" does not exist"; exit; }
+
+# Check that destination volume DOES NOT exist
+docker volume inspect $2 >/dev/null 2>&1 \
+	&& { echo "Error: destination volume \"$2\" already exists"; exit; }
+
+echo "Creating destination volume \"$2\"..."
+docker volume create --name $2 \
+	|| { echo "Error: unable to create destination volume"; exit; }
+
+echo "Copying data from source volume \"$1\"..."
+docker run -it -v $1:/from -v $2:/to --rm alpine \
+	ash -c "cd /from; cp -av . /to" \
+	|| { echo "Error: unable to copy files to destination volume"; exit; }
+
